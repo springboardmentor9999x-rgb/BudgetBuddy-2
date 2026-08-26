@@ -1,2 +1,21 @@
+# Frontend
 frontend/node_modules/
+frontend/dist/
+
+# Backend secrets
 backend/.env
+
+# Python generated files
+__pycache__/
+*.py[cod]
+
+# Test/log files
+*.log
+
+# Environment files
+.env
+*.env
+
+# OS files
+.DS_Store
+Thumbs.db
