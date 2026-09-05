@@ -19,8 +19,6 @@ import {
   Target,
   RefreshCw,
   CalendarDays,
-  FileSpreadsheet,
-  FileText,
 } from 'lucide-react';
 
 
@@ -482,8 +480,6 @@ export default function AnalyticsDashboard() {
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState('');
-
-  const [exporting, setExporting] = useState('');
 
 
   /* ==========================================================
@@ -986,89 +982,6 @@ export default function AnalyticsDashboard() {
 
 
   /* ==========================================================
-     EXPORT
-  ========================================================== */
-
-  const handleExport = async (type) => {
-
-    try {
-
-      setExporting(type);
-      setError('');
-
-      const endpoint =
-        type === 'pdf'
-          ? '/reports/export/pdf'
-          : '/reports/export/excel';
-
-      const response =
-        await api.get(
-          endpoint,
-          {
-            params: {
-              start_date: startDate,
-              end_date: endDate,
-            },
-
-            responseType: 'blob',
-          }
-        );
-
-      const blob =
-        new Blob(
-          [response.data],
-          {
-            type:
-              type === 'pdf'
-                ? 'application/pdf'
-                : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          }
-        );
-
-      const url =
-        window.URL.createObjectURL(
-          blob
-        );
-
-      const link =
-        document.createElement('a');
-
-      link.href = url;
-
-      link.download =
-        type === 'pdf'
-          ? `BudgetBuddy_Report_${startDate}_to_${endDate}.pdf`
-          : `BudgetBuddy_Report_${startDate}_to_${endDate}.xlsx`;
-
-      document.body.appendChild(link);
-
-      link.click();
-
-      link.remove();
-
-      window.URL.revokeObjectURL(
-        url
-      );
-
-    } catch (err) {
-
-      console.error(
-        'Export error:',
-        err
-      );
-
-      setError(
-        `Unable to export ${type.toUpperCase()} report. Please check the backend export endpoint.`
-      );
-
-    } finally {
-
-      setExporting('');
-    }
-  };
-
-
-  /* ==========================================================
      COMPARISON VALUES
   ========================================================== */
 
@@ -1437,79 +1350,6 @@ export default function AnalyticsDashboard() {
               ? 'Loading...'
               : 'Apply Date Range'}
           </button>
-
-        </div>
-
-      </section>
-
-
-      {/* ======================================================
-          EXPORT
-      ====================================================== */}
-
-      <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-
-          <div>
-
-            <h2 className="font-semibold text-slate-900">
-              Export Selected Period
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Download the report for {selectedPeriodLabel}
-            </p>
-
-          </div>
-
-
-          <div className="flex flex-wrap gap-3">
-
-            <button
-              type="button"
-              onClick={() =>
-                handleExport('pdf')
-              }
-              disabled={
-                exporting === 'pdf'
-              }
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
-            >
-
-              {exporting === 'pdf' ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileText className="h-4 w-4" />
-              )}
-
-              Export PDF
-
-            </button>
-
-
-            <button
-              type="button"
-              onClick={() =>
-                handleExport('excel')
-              }
-              disabled={
-                exporting === 'excel'
-              }
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
-            >
-
-              {exporting === 'excel' ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="h-4 w-4" />
-              )}
-
-              Export Excel
-
-            </button>
-
-          </div>
 
         </div>
 
@@ -2150,7 +1990,7 @@ export default function AnalyticsDashboard() {
 
       <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-center text-xs text-slate-500">
 
-        Summary cards show lifetime totals. Trends, category analysis and exports use the selected period.
+        Summary cards show lifetime totals. Trends and category analysis use the selected period.
 
       </div>
 
@@ -2176,4 +2016,3 @@ function EmptyState({
     </div>
   );
 }
-

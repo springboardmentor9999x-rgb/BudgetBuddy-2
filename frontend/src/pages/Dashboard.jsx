@@ -1,289 +1,747 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api/axios';
+
 import AccountCard from '../components/AccountCard';
 import TransactionList from '../components/TransactionList';
 import FinanceQuotes from '../components/FinanceQuotes';
 import walletImg from '../assets/budgetbuddy-wallet.png';
-import { 
-  Wallet, 
-  TrendingUp, 
-  TrendingDown, 
-  CreditCard, 
-  PiggyBank, 
-  PlusCircle, 
+
+import {
+  Wallet,
+  TrendingUp,
+  TrendingDown,
+  PiggyBank,
+  PlusCircle,
   AlertCircle,
   ArrowRight,
-  RefreshCw
+  RefreshCw,
+  CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
-  const fetchDashboard = async () => {
-    setLoading(true);
+  // ============================================================
+  // FORMAT CURRENCY SAFELY
+  // ============================================================
+
+  const formatCurrency = (value) => {
+    const amount = Number(value ?? 0);
+
+    return amount.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const formatNumber = (value) => {
+    const amount = Number(value ?? 0);
+
+    return amount.toLocaleString('en-IN');
+  };
+
+  // ============================================================
+  // FETCH DASHBOARD
+  // ============================================================
+
+  const fetchDashboard = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    setError('');
+
     try {
-      const res = await api.get('/dashboard');
-      setData(res.data);
+      const response = await api.get('/dashboard');
+
+      setData(response.data);
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
+
+      setError(
+        err?.response?.data?.detail ||
+        'Unable to load your financial dashboard. Please try again.'
+      );
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, []);
+
+  // ============================================================
+  // INITIAL LOAD
+  // ============================================================
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard]);
+
+  // ============================================================
+  // LOADING STATE
+  // ============================================================
 
   if (loading) {
     return (
-      <div className="p-8 flex flex-col items-center justify-center space-y-4">
-        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-        <p className="text-slate-400 text-sm font-semibold">Gathering your financial insights...</p>
+      <div className="min-h-[60vh] flex flex-col items-center justify-center px-6">
+        <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-5">
+          <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
+        </div>
+
+        <h2 className="text-lg font-bold text-white">
+          Preparing your dashboard
+        </h2>
+
+        <p className="text-slate-400 text-sm mt-1 text-center">
+          Gathering your latest financial insights...
+        </p>
       </div>
     );
   }
 
-  // EMPTY STATE check: No accounts registered
-  if (!data || data.number_of_accounts === 0) {
+  // ============================================================
+  // ERROR STATE
+  // ============================================================
+
+  if (error && !data) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center px-6">
+        <div className="w-full max-w-lg bg-slate-900/80 border border-red-500/20 rounded-3xl p-8 text-center shadow-2xl">
+
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-5">
+            <AlertCircle className="w-7 h-7 text-red-400" />
+          </div>
+
+          <h2 className="text-xl font-bold text-white">
+            Dashboard unavailable
+          </h2>
+
+          <p className="text-sm text-slate-400 mt-2">
+            {error}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => fetchDashboard()}
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all shadow-lg shadow-blue-500/20"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </button>
+
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // NORMALIZE DASHBOARD DATA
+  // ============================================================
+
+  const numberOfAccounts = Number(data?.number_of_accounts ?? 0);
+
+  const availableBalance = Number(data?.available_balance ?? 0);
+  const totalIncome = Number(data?.total_income ?? 0);
+  const totalExpenses = Number(data?.total_expenses ?? 0);
+  const totalInGoals = Number(data?.total_in_goals ?? 0);
+
+  const accountBalances = Array.isArray(data?.account_balances)
+    ? data.account_balances
+    : [];
+
+  const budgetSummary = Array.isArray(data?.budget_summary)
+    ? data.budget_summary
+    : [];
+
+  const recentTransactions = Array.isArray(data?.recent_transactions)
+    ? data.recent_transactions
+    : [];
+
+  // ============================================================
+  // EMPTY ACCOUNT STATE
+  // ============================================================
+
+  if (numberOfAccounts === 0) {
     return (
       <div className="space-y-8 animate-fade-in">
-        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center max-w-3xl mx-auto shadow-2xl relative overflow-hidden">
-          <div className="absolute -right-12 -top-12 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl"></div>
 
-          <div className="inline-flex p-4 rounded-3xl bg-blue-500/10 border border-blue-500/20 text-blue-400 mb-6">
+        {/* Welcome Card */}
+        <div className="relative overflow-hidden bg-slate-900/80 border border-slate-800 rounded-3xl p-7 sm:p-10 lg:p-12 text-center max-w-4xl mx-auto shadow-2xl">
+
+          {/* Decorative Background */}
+          <div className="absolute -right-24 -top-24 w-72 h-72 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -left-24 -bottom-24 w-72 h-72 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Icon */}
+          <div className="relative inline-flex p-4 rounded-3xl bg-blue-500/10 border border-blue-500/20 text-blue-400 mb-6">
             <Wallet className="w-12 h-12" />
           </div>
 
-          <h2 className="text-3xl font-extrabold text-white">Welcome to BudgetBuddy! 👋</h2>
-          <p className="text-slate-300 text-base mt-2 max-w-lg mx-auto">
-            Start by adding your first bank, UPI, or cash account and take complete control of your finances.
+          <h1 className="relative text-2xl sm:text-3xl lg:text-4xl font-black text-white">
+            Welcome to BudgetBuddy! 👋
+          </h1>
+
+          <p className="relative text-slate-300 text-sm sm:text-base mt-3 max-w-xl mx-auto leading-relaxed">
+            Your financial journey starts here. Add your first bank, UPI,
+            wallet, or cash account to begin tracking your money.
           </p>
 
-          <div className="my-8 flex justify-center">
+          {/* Welcome Image */}
+          <div className="relative my-8 flex justify-center">
             <img
               src={walletImg}
-              alt="Welcome to BudgetBuddy"
-              className="w-full max-w-xs rounded-2xl border border-slate-800 shadow-xl object-cover"
+              alt="BudgetBuddy wallet illustration"
+              className="w-full max-w-sm rounded-2xl border border-slate-800 shadow-xl object-cover"
             />
           </div>
 
-          <div className="max-w-md mx-auto mb-8">
+          {/* Finance Quote */}
+          <div className="relative max-w-md mx-auto mb-8">
             <FinanceQuotes />
+          </div>
+
+          {/* CTA */}
+          <Link
+            to="/accounts"
+            className="relative inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-7 sm:px-8 py-3.5 sm:py-4 rounded-2xl shadow-xl shadow-blue-500/20 transition-all hover:-translate-y-0.5"
+          >
+            <PlusCircle className="w-5 h-5" />
+            <span>Add Your First Account</span>
+          </Link>
+
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // MAIN DASHBOARD
+  // ============================================================
+
+  return (
+    <div className="space-y-7 sm:space-y-8 animate-fade-in">
+
+      {/* ========================================================
+          DASHBOARD HEADER
+      ======================================================== */}
+
+      <section className="relative overflow-hidden bg-slate-900/70 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
+
+        <div className="absolute right-0 top-0 w-48 h-48 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Wallet className="w-5 h-5 text-blue-400" />
+
+              <span className="text-xs font-bold uppercase tracking-widest text-blue-400">
+                Overview
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-black text-white">
+              Financial Dashboard
+            </h1>
+
+            <p className="text-slate-400 text-xs sm:text-sm mt-1">
+              Monitor your accounts, cash flow, goals, and budgets in one place.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+
+            {/* Refresh */}
+            <button
+              type="button"
+              onClick={() => fetchDashboard(true)}
+              disabled={refreshing}
+              title="Refresh dashboard"
+              className="p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${
+                  refreshing ? 'animate-spin' : ''
+                }`}
+              />
+            </button>
+
+            {/* Add Income */}
+            <Link
+              to="/income"
+              className="inline-flex items-center gap-1.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 font-semibold px-3.5 py-2.5 rounded-xl text-xs transition-all"
+            >
+              <TrendingUp className="w-4 h-4" />
+              <span>Add Income</span>
+            </Link>
+
+            {/* Add Expense */}
+            <Link
+              to="/expenses"
+              className="inline-flex items-center gap-1.5 bg-red-600/15 hover:bg-red-600/25 text-red-300 border border-red-500/30 font-semibold px-3.5 py-2.5 rounded-xl text-xs transition-all"
+            >
+              <TrendingDown className="w-4 h-4" />
+              <span>Add Expense</span>
+            </Link>
+
+          </div>
+        </div>
+      </section>
+
+      {/* ========================================================
+          REFRESH ERROR
+      ======================================================== */}
+
+      {error && (
+        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+
+          <p className="text-xs text-red-300">
+            {error}
+          </p>
+        </div>
+      )}
+
+      {/* ========================================================
+          SUMMARY CARDS
+      ======================================================== */}
+
+      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+
+        {/* Available Balance */}
+        <div className="group bg-slate-900/70 border border-slate-800 hover:border-blue-500/30 rounded-2xl p-5 shadow-xl transition-all">
+
+          <div className="flex items-center justify-between">
+
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Available Balance
+            </span>
+
+            <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 group-hover:scale-105 transition-transform">
+              <Wallet className="w-5 h-5" />
+            </div>
+
+          </div>
+
+          <div className="mt-5">
+            <p className="text-2xl sm:text-3xl font-black text-white break-words">
+              ₹{formatCurrency(availableBalance)}
+            </p>
+
+            <p className="text-xs text-slate-400 mt-1.5">
+              Across {numberOfAccounts} account
+              {numberOfAccounts !== 1 ? 's' : ''}
+            </p>
+          </div>
+        </div>
+
+        {/* Income */}
+        <div className="group bg-slate-900/70 border border-slate-800 hover:border-emerald-500/30 rounded-2xl p-5 shadow-xl transition-all">
+
+          <div className="flex items-center justify-between">
+
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Total Income
+            </span>
+
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-105 transition-transform">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+
+          </div>
+
+          <div className="mt-5">
+            <p className="text-2xl sm:text-3xl font-black text-emerald-400 break-words">
+              + ₹{formatCurrency(totalIncome)}
+            </p>
+
+            <p className="text-xs text-slate-400 mt-1.5">
+              All recorded income
+            </p>
+          </div>
+        </div>
+
+        {/* Expenses */}
+        <div className="group bg-slate-900/70 border border-slate-800 hover:border-red-500/30 rounded-2xl p-5 shadow-xl transition-all">
+
+          <div className="flex items-center justify-between">
+
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Total Expenses
+            </span>
+
+            <div className="p-2.5 rounded-xl bg-red-500/10 text-red-400 group-hover:scale-105 transition-transform">
+              <TrendingDown className="w-5 h-5" />
+            </div>
+
+          </div>
+
+          <div className="mt-5">
+            <p className="text-2xl sm:text-3xl font-black text-red-400 break-words">
+              - ₹{formatCurrency(totalExpenses)}
+            </p>
+
+            <p className="text-xs text-slate-400 mt-1.5">
+              All recorded expenses
+            </p>
+          </div>
+        </div>
+
+        {/* Savings */}
+        <div className="group bg-slate-900/70 border border-slate-800 hover:border-indigo-500/30 rounded-2xl p-5 shadow-xl transition-all">
+
+          <div className="flex items-center justify-between">
+
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Savings Goals
+            </span>
+
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 group-hover:scale-105 transition-transform">
+              <PiggyBank className="w-5 h-5" />
+            </div>
+
+          </div>
+
+          <div className="mt-5">
+            <p className="text-2xl sm:text-3xl font-black text-indigo-400 break-words">
+              ₹{formatCurrency(totalInGoals)}
+            </p>
+
+            <p className="text-xs text-slate-400 mt-1.5">
+              Saved towards goals
+            </p>
+          </div>
+        </div>
+
+      </section>
+
+      {/* ========================================================
+          ACCOUNTS
+      ======================================================== */}
+
+      <section className="space-y-4">
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+
+          <div>
+            <h2 className="font-bold text-white text-xl">
+              Financial Accounts
+            </h2>
+
+            <p className="text-xs text-slate-500 mt-0.5">
+              Your connected bank, wallet, UPI, and cash accounts
+            </p>
           </div>
 
           <Link
             to="/accounts"
-            className="inline-flex items-center space-x-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-8 py-4 rounded-2xl shadow-xl shadow-blue-500/25 transition-transform hover:scale-105"
+            className="self-start sm:self-auto text-blue-400 hover:text-blue-300 font-semibold text-xs inline-flex items-center gap-1"
           >
-            <PlusCircle className="w-5 h-5" />
-            <span>+ Add Your First Account</span>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-8 animate-fade-in">
-      
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white">Financial Dashboard</h1>
-          <p className="text-slate-400 text-xs sm:text-sm mt-0.5">Real-time overview of your accounts, cash flows, and budgets</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <Link
-            to="/income"
-            className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition-colors"
-          >
-            <TrendingUp className="w-4 h-4" />
-            <span>+ Add Income</span>
-          </Link>
-          <Link
-            to="/expenses"
-            className="bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 font-semibold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition-colors"
-          >
-            <TrendingDown className="w-4 h-4" />
-            <span>+ Add Expense</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* Summary Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        
-        {/* Card 1: Total Available Balance */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Available Balance</span>
-            <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-              <Wallet className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl sm:text-3xl font-black text-white">
-              ₹{data.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-xs text-slate-400 mt-1 font-medium">Across {data.number_of_accounts} accounts</p>
-          </div>
-        </div>
-
-        {/* Card 2: Total Income */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Income</span>
-            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl sm:text-3xl font-black text-emerald-400">
-              + ₹{data.total_income.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-xs text-slate-400 mt-1 font-medium">All recorded income</p>
-          </div>
-        </div>
-
-        {/* Card 3: Total Expenses */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Expenses</span>
-            <div className="p-2 rounded-xl bg-red-500/10 text-red-400">
-              <TrendingDown className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl sm:text-3xl font-black text-red-400">
-              - ₹{data.total_expenses.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-xs text-slate-400 mt-1 font-medium">All normal expenses</p>
-          </div>
-        </div>
-
-        {/* Card 4: Total in Goals */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total in Goals</span>
-            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
-              <PiggyBank className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl sm:text-3xl font-black text-indigo-400">
-              ₹{data.total_in_goals.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-xs text-slate-400 mt-1 font-medium">Saved towards goals</p>
-          </div>
-        </div>
-
-      </div>
-
-
-
-      {/* Bank Accounts Row */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-bold text-white text-xl">Financial Accounts</h3>
-          <Link to="/accounts" className="text-blue-400 hover:text-blue-300 font-semibold text-xs flex items-center space-x-1">
             <span>Manage Accounts</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
+
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {data.account_balances.map((acc) => (
-            <AccountCard key={acc.id} account={acc} />
-          ))}
-        </div>
-      </div>
+        {accountBalances.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
 
-      {/* Savings Goals & Budget Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Active Savings Goals Card */}
-        <div className="lg:col-span-1 glass-panel p-6 rounded-2xl border border-slate-800 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-lg flex items-center space-x-2">
-              <PiggyBank className="w-5 h-5 text-emerald-400" />
-              <span>Savings Goals</span>
-            </h3>
-            <Link to="/goals" className="text-xs text-blue-400 hover:underline font-semibold flex items-center space-x-1">
-              <span>View All</span>
-              <ArrowRight className="w-3 h-3" />
+            {accountBalances.map((account) => (
+              <AccountCard
+                key={account.id}
+                account={account}
+              />
+            ))}
+
+          </div>
+        ) : (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-center">
+            <CreditCard className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+
+            <p className="text-sm font-semibold text-slate-300">
+              No account details available
+            </p>
+
+            <Link
+              to="/accounts"
+              className="inline-flex items-center gap-1.5 mt-3 text-xs text-blue-400 hover:text-blue-300 font-semibold"
+            >
+              Manage Accounts
+              <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
+        )}
 
-          <p className="text-slate-400 text-xs">
-            Track your savings progress, set targets for electronics, travel, or emergency funds.
+      </section>
+
+      {/* ========================================================
+          GOALS + BUDGETS
+      ======================================================== */}
+
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+
+        {/* Savings Goals */}
+        <div className="xl:col-span-1 bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl">
+
+          <div className="flex items-center justify-between">
+
+            <h2 className="font-bold text-white text-lg flex items-center gap-2">
+              <PiggyBank className="w-5 h-5 text-emerald-400" />
+              Savings Goals
+            </h2>
+
+            <Link
+              to="/goals"
+              className="text-xs text-blue-400 hover:text-blue-300 font-semibold inline-flex items-center gap-1"
+            >
+              View All
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+
+          </div>
+
+          <p className="text-slate-400 text-xs leading-relaxed mt-4">
+            Set targets and track progress for travel, electronics,
+            emergency funds, education, and other financial goals.
           </p>
+
+          <div className="mt-5 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+
+              <span className="text-xs font-semibold text-emerald-300">
+                Keep building your financial future
+              </span>
+            </div>
+          </div>
 
           <Link
             to="/goals"
-            className="block w-full text-center bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold py-2.5 rounded-xl text-xs transition-colors"
+            className="mt-5 block w-full text-center bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 font-semibold py-2.5 rounded-xl text-xs transition-all"
           >
             + Create / Contribute Goal
           </Link>
+
         </div>
 
-        {/* Budget Utilization Status */}
-        <div className="lg:col-span-2 glass-panel p-6 rounded-2xl border border-slate-800 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-lg">Active Budgets & Overspending Alerts</h3>
-            <Link to="/budgets" className="text-xs text-blue-400 hover:underline font-semibold">View All Budgets</Link>
+        {/* Budgets */}
+        <div className="xl:col-span-2 bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl">
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+
+            <div>
+              <h2 className="font-bold text-white text-lg">
+                Active Budgets
+              </h2>
+
+              <p className="text-xs text-slate-500 mt-0.5">
+                Monitor spending and catch overspending early
+              </p>
+            </div>
+
+            <Link
+              to="/budgets"
+              className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+            >
+              View All Budgets
+            </Link>
+
           </div>
 
-          {data.budget_summary.length === 0 ? (
-            <p className="text-slate-400 text-xs py-4 text-center">No budgets created for this month.</p>
+          {budgetSummary.length === 0 ? (
+            <div className="py-8 text-center">
+
+              <CreditCard className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+
+              <p className="text-sm text-slate-400">
+                No budgets created for this month.
+              </p>
+
+              <Link
+                to="/budgets"
+                className="inline-flex items-center gap-1.5 mt-3 text-xs text-blue-400 hover:text-blue-300 font-semibold"
+              >
+                Create a Budget
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+
+            </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {data.budget_summary.map((b) => (
-                <div key={b.id} className="p-3.5 rounded-xl bg-slate-800/50 border border-slate-700/60 space-y-2">
-                  <div className="flex justify-between items-center text-sm font-semibold">
-                    <span className="text-slate-200">{b.category}</span>
-                    <span className={b.is_exceeded ? 'text-red-400' : 'text-slate-300'}>
-                      ₹{b.spent_amount.toLocaleString('en-IN')} / ₹{b.monthly_limit.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        b.is_exceeded ? 'bg-red-500' : b.utilization_percentage >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-                      }`}
-                      style={{ width: `${Math.min(b.utilization_percentage, 100)}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[11px] text-slate-400">
-                    <span>{b.utilization_percentage}% utilized</span>
-                    {b.is_exceeded && (
-                      <span className="text-red-400 font-bold flex items-center space-x-1">
-                        <AlertCircle className="w-3 h-3" />
-                        <span>Exceeded</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+
+              {budgetSummary.map((budget) => {
+
+                const utilization = Math.max(
+                  0,
+                  Number(budget.utilization_percentage ?? 0)
+                );
+
+                const progressWidth = Math.min(
+                  utilization,
+                  100
+                );
+
+                const isExceeded = Boolean(
+                  budget.is_exceeded
+                );
+
+                const progressClass = isExceeded
+                  ? 'bg-red-500'
+                  : utilization >= 80
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-500';
+
+                return (
+                  <div
+                    key={budget.id}
+                    className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 hover:border-slate-600 transition-all"
+                  >
+
+                    <div className="flex justify-between items-start gap-3">
+
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-200 truncate">
+                          {budget.category || 'General'}
+                        </p>
+
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Monthly budget
+                        </p>
+                      </div>
+
+                      {isExceeded && (
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      )}
+
+                    </div>
+
+                    <div className="flex justify-between items-center mt-4 gap-2">
+
+                      <span className="text-xs text-slate-400">
+                        ₹{formatNumber(budget.spent_amount)}
                       </span>
-                    )}
+
+                      <span className="text-xs text-slate-500">
+                        of ₹{formatNumber(budget.monthly_limit)}
+                      </span>
+
+                    </div>
+
+                    <div className="w-full bg-slate-700/80 h-2 rounded-full overflow-hidden mt-2">
+
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${progressClass}`}
+                        style={{
+                          width: `${progressWidth}%`,
+                        }}
+                      />
+
+                    </div>
+
+                    <div className="flex justify-between items-center mt-2">
+
+                      <span className="text-[11px] text-slate-500">
+                        {utilization.toFixed(0)}% utilized
+                      </span>
+
+                      {isExceeded ? (
+                        <span className="text-[11px] text-red-400 font-bold">
+                          Exceeded
+                        </span>
+                      ) : utilization >= 80 ? (
+                        <span className="text-[11px] text-amber-400 font-bold">
+                          Near limit
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-emerald-400 font-semibold">
+                          On track
+                        </span>
+                      )}
+
+                    </div>
+
                   </div>
-                </div>
-              ))}
+                );
+              })}
+
             </div>
           )}
+
         </div>
 
-      </div>
+      </section>
 
-      {/* Recent Transactions List */}
-      <div className="glass-panel p-6 rounded-2xl border border-slate-800 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-bold text-white text-lg">Recent Transactions</h3>
-          <span className="text-xs text-slate-400">Latest 10 records</span>
+      {/* ========================================================
+          RECENT TRANSACTIONS
+      ======================================================== */}
+
+      <section className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
+
+          <div>
+            <h2 className="font-bold text-white text-lg">
+              Recent Transactions
+            </h2>
+
+            <p className="text-xs text-slate-500 mt-0.5">
+              Your latest financial activity
+            </p>
+          </div>
+
+          <span className="text-[11px] text-slate-500">
+            Latest 10 records
+          </span>
+
         </div>
 
-        <TransactionList transactions={data.recent_transactions} />
-      </div>
+        {recentTransactions.length > 0 ? (
+          <TransactionList
+            transactions={recentTransactions}
+          />
+        ) : (
+          <div className="py-8 text-center border border-dashed border-slate-800 rounded-xl">
+
+            <TrendingUp className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+
+            <p className="text-sm font-semibold text-slate-400">
+              No recent transactions
+            </p>
+
+            <p className="text-xs text-slate-500 mt-1">
+              Add income or expenses to start tracking your activity.
+            </p>
+
+            <div className="flex justify-center gap-2 mt-4">
+
+              <Link
+                to="/income"
+                className="px-3 py-2 rounded-lg bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-600/20"
+              >
+                Add Income
+              </Link>
+
+              <Link
+                to="/expenses"
+                className="px-3 py-2 rounded-lg bg-red-600/10 border border-red-500/20 text-red-400 text-xs font-semibold hover:bg-red-600/20"
+              >
+                Add Expense
+              </Link>
+
+            </div>
+
+          </div>
+        )}
+
+      </section>
 
     </div>
   );
 }
+
