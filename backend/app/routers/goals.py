@@ -20,7 +20,7 @@ def format_ist_notification_time(dt_utc):
     time_str = ist_time.strftime('%I:%M %p').lstrip('0')
     day = ist_time.day
     date_str = ist_time.strftime(f'%A, {day} %B %Y (IST)')
-    return f"**{time_str}**\n**{date_str}**\n**Time in Vijayawada East**"
+    return f"**{time_str}**\n**{date_str}**"
 
 
 def make_naive(dt: datetime.datetime) -> datetime.datetime:
@@ -431,7 +431,7 @@ def contribute_to_goal(
             
             if threshold == 100:
                 title_str = f"🎉 Saving Goal \"{goal.title}\" completed!"
-                msg = f"You reached your target of ₹{goal.target_amount:,.0f}."
+                msg = f"Congratulations!\nYour {goal.title} Saving Goal has been completed."
                 rich_text = f"**{title_str}**\n\n{msg}\n\n{time_str}"
             elif threshold == 90:
                 title_str = f"🎯 Almost there! You have completed 90% of your Saving Goal \"{goal.title}\"."

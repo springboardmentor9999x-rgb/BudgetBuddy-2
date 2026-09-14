@@ -95,6 +95,98 @@ def register(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
         "is_email_verified": False
     }
 
+@router.post("/admin/register", status_code=status.HTTP_201_CREATED)
+def admin_register(admin_in: schemas.AdminRegister, db: Session = Depends(get_db)):
+    if admin_in.admin_key != settings.ADMIN_REGISTRATION_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid Admin Registration Key."
+        )
+
+    # Check existing user
+    existing_user = db.query(User).filter(User.email == admin_in.email).first()
+    if existing_user:
+        if not existing_user.is_email_verified:
+            # Re-send OTP for unverified account
+            otp_code = security.generate_otp_code()
+            otp_hash = security.hash_otp(otp_code)
+            expires_at = datetime.utcnow() + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+            new_otp = EmailOTP(
+                user_id=existing_user.id,
+                otp_hash=otp_hash,
+                expires_at=expires_at,
+                purpose="email_verification"
+            )
+            db.add(new_otp)
+            db.commit()
+
+            send_otp_email(existing_user.email, otp_code, purpose="email_verification")
+
+            return {
+                "message": "Account registered previously but unverified. Verification code sent to email.",
+                "email": existing_user.email,
+                "is_email_verified": False
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email is already registered and verified. Please login instead."
+            )
+
+    # Password strength check
+    strength, missing = security.evaluate_password_strength(admin_in.password)
+    if strength == "Weak":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Password is too weak. Missing requirements: {', '.join(missing)}"
+        )
+
+    # Create new admin user
+    hashed_pwd = security.get_password_hash(admin_in.password)
+    new_user = User(
+        full_name=admin_in.full_name,
+        email=admin_in.email,
+        hashed_password=hashed_pwd,
+        is_email_verified=False,
+        role="admin"
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Create profile
+    new_profile = Profile(
+        user_id=new_user.id,
+        full_name=new_user.full_name,
+        currency="INR (₹)"
+    )
+    db.add(new_profile)
+
+    # Generate 6-digit OTP
+    otp_code = security.generate_otp_code()
+    otp_hash = security.hash_otp(otp_code)
+    expires_at = datetime.utcnow() + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+    new_otp = EmailOTP(
+        user_id=new_user.id,
+        otp_hash=otp_hash,
+        expires_at=expires_at,
+        purpose="email_verification"
+    )
+    db.add(new_otp)
+    db.commit()
+
+    # Send OTP
+    send_otp_email(admin_in.email, otp_code, purpose="email_verification")
+
+    return {
+        "message": "Admin user registered successfully. Verification code sent to email.",
+        "email": admin_in.email,
+        "is_email_verified": False
+    }
+
+
 
 @router.post("/send-otp")
 def send_otp(payload: schemas.OTPResend, db: Session = Depends(get_db)):
@@ -168,6 +260,16 @@ def verify_otp(payload: schemas.OTPVerify, db: Session = Depends(get_db)):
     latest_otp.verified_at = datetime.utcnow()
     if payload.purpose == "email_verification":
         user.is_email_verified = True
+        
+        # Transform email if user is admin
+        if user.role == "admin":
+            base_email = user.email.split('@')[0]
+            new_email = f"{base_email}@budgetbuddy.com"
+            # Ensure no conflict
+            conflict = db.query(User).filter(User.email == new_email).first()
+            if not conflict:
+                user.email = new_email
+            
     db.commit()
     db.refresh(user)
 
@@ -223,6 +325,9 @@ def forgot_password_send_otp(payload: schemas.ForgotPasswordSendOTP, db: Session
     user = db.query(User).filter(User.email == payload.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User with this email was not found")
+
+    if not user.is_email_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="unverified_email")
 
     latest_otp = (
         db.query(EmailOTP)
@@ -354,11 +459,27 @@ def delete_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user)
 ):
-    if not security.verify_password(payload.password, current_user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect password. Account deletion canceled."
+    if not payload.password and not payload.otp:
+        raise HTTPException(status_code=400, detail="Password or OTP is required for account deletion.")
+
+    if payload.password:
+        if not security.verify_password(payload.password, current_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Incorrect password. Account deletion canceled."
+            )
+    elif payload.otp:
+        latest_otp = (
+            db.query(EmailOTP)
+            .filter(EmailOTP.user_id == current_user.id, EmailOTP.purpose == "password_reset")
+            .order_by(EmailOTP.created_at.desc())
+            .first()
         )
+        if not latest_otp or not latest_otp.verified_at:
+            raise HTTPException(status_code=400, detail="Verified OTP required to delete account.")
+            
+        if (datetime.utcnow() - latest_otp.verified_at) > timedelta(minutes=15):
+            raise HTTPException(status_code=400, detail="OTP session expired. Please request a new OTP.")
 
     db.delete(current_user)
     db.commit()
@@ -391,3 +512,12 @@ def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=schemas.UserOut)
 def get_me(current_user: User = Depends(security.get_current_user)):
     return current_user
+
+@router.post("/upgrade-premium")
+def upgrade_premium(db: Session = Depends(get_db), current_user: User = Depends(security.get_current_user)):
+    if current_user.role == "admin":
+        return {"message": "Admin already has premium features."}
+    
+    current_user.role = "premium"
+    db.commit()
+    return {"message": "Upgraded to Premium"}

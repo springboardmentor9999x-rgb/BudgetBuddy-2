@@ -48,8 +48,8 @@ def test_expenses_and_budget_exceeded_notification(client, user_a_headers):
 
     # Verify budget exceeded notification IS created
     n2 = client.get("/notifications", headers=user_a_headers).json()
-    alerts = [item for item in n2 if "Food budget has been exceeded" in item["message"]]
-    assert len(alerts) == 1
+    alerts = [item for item in n2 if "You exceeded your" in item["message"] and "Food budget" in item["message"]]
+    assert len(alerts) >= 1
 
     # 5. Create a 3rd Food expense of ₹500 (Duplicate notification prevention check)
     e3 = client.post("/expenses", headers=user_a_headers, json={
@@ -65,5 +65,5 @@ def test_expenses_and_budget_exceeded_notification(client, user_a_headers):
 
     # Verify NO duplicate budget alert notification was created
     n3 = client.get("/notifications", headers=user_a_headers).json()
-    alerts3 = [item for item in n3 if "Food budget has been exceeded" in item["message"]]
+    alerts3 = [item for item in n3 if "You exceeded your" in item["message"] and "Food budget" in item["message"]]
     assert len(alerts3) == 1

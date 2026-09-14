@@ -23,13 +23,14 @@ from app.config import settings
 from app.database import Base
 from app import models
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-target_metadata = Base.metadata
+# Escape '%' characters because Alembic uses ConfigParser,
+# which treats '%' as interpolation syntax.
+config.set_main_option(
+    "sqlalchemy.url",
+    settings.DATABASE_URL.replace("%", "%%")
+)
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
@@ -37,14 +38,13 @@ def run_migrations_offline() -> None:
 
     This configures the context with just a URL
     and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
+    here as well.
 
-    Calls to context.execute() here emit the given string to the
-    script output.
-
+    Calls to context.execute() here emit the given string
+    to the script output.
     """
     url = config.get_main_option("sqlalchemy.url")
+
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -61,7 +61,6 @@ def run_migrations_online() -> None:
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -71,7 +70,8 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
         )
 
         with context.begin_transaction():

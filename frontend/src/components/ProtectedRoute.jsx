@@ -2,7 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function ProtectedRoute({ children }) {
+export default function ProtectedRoute({ children, allowedRoles }) {
   const { user, token, loading } = useAuth();
   const location = useLocation();
 
@@ -23,6 +23,10 @@ export default function ProtectedRoute({ children }) {
 
   if (!user.is_email_verified) {
     return <Navigate to="/verify-email" state={{ email: user.email }} replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;

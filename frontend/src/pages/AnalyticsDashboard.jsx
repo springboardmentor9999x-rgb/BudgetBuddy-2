@@ -1,206 +1,1885 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import api from '../api/axios';
-import { 
-  SpendingPieChart, 
-  MonthlyTrendLineChart, 
-  ExpenseHistogram, 
-  SavingsDonutChart 
+import { useAuth } from '../context/AuthContext';
+
+import {
+  IncomeBarChart,
+  ExpenseLineChart,
+  CategoryPieChart,
+  BudgetUsagePieChart,
+  CategoryTrendChart,
+  SavingsTrendChart,
 } from '../components/Charts';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  TrendingDown, 
-  Wallet, 
-  PiggyBank, 
-  Target, 
-  PieChart,
-  RefreshCw 
+
+import {
+  BarChart3,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  PiggyBank,
+  Target,
+  RefreshCw,
+  CalendarDays,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 
+
+/* ============================================================
+   HELPERS
+============================================================ */
+
+const today = new Date();
+
+const formatDateInput = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
+
+const getStartOfMonth = (date) => {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    1
+  );
+};
+
+const getEndOfMonth = (date) => {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth() + 1,
+    0
+  );
+};
+
+const subtractMonths = (date, numberOfMonths) => {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth() - numberOfMonths,
+    1
+  );
+};
+
+const money = (value) => {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return '₹0.00';
+  }
+
+  return `₹${number.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+const percent = (value) => {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return '0.00%';
+  }
+
+  return `${number.toFixed(2)}%`;
+};
+
+const safeArray = (value) => {
+  return Array.isArray(value) ? value : [];
+};
+
+
+/* ============================================================
+   RESPONSE NORMALIZERS
+============================================================ */
+
+const normalizeSummary = (data) => {
+  if (!data || typeof data !== 'object') {
+    return {
+      total_income: 0,
+      total_expenses: 0,
+      net_savings: 0,
+      savings_rate: 0,
+    };
+  }
+
+  const totalIncome = Number(
+    data.total_income ??
+    data.income ??
+    data.totalIncome ??
+    0
+  );
+
+  const totalExpenses = Number(
+    data.total_expenses ??
+    data.expenses ??
+    data.totalExpenses ??
+    0
+  );
+
+  const netSavings = Number(
+    data.net_savings ??
+    data.netSavings ??
+    data.net_balance ??
+    data.netBalance ??
+    totalIncome - totalExpenses
+  );
+
+  const savingsRate = Number(
+    data.savings_rate ??
+    data.savingsRate ??
+    (
+      totalIncome > 0
+        ? (netSavings / totalIncome) * 100
+        : 0
+    )
+  );
+
+  return {
+    ...data,
+
+    total_income:
+      Number.isFinite(totalIncome)
+        ? totalIncome
+        : 0,
+
+    total_expenses:
+      Number.isFinite(totalExpenses)
+        ? totalExpenses
+        : 0,
+
+    net_savings:
+      Number.isFinite(netSavings)
+        ? netSavings
+        : 0,
+
+    savings_rate:
+      Number.isFinite(savingsRate)
+        ? savingsRate
+        : 0,
+  };
+};
+
+
+/* ============================================================
+   CATEGORY NORMALIZER
+   Includes calculated percentage for Pie Chart labels.
+============================================================ */
+
+const normalizeCategoryData = (data) => {
+  const source = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.categories)
+      ? data.categories
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+  const normalized = source
+    .map((item) => ({
+      category:
+        item.category ??
+        item.name ??
+        item.label ??
+        'Other',
+
+      amount: Number(
+        item.amount ??
+        item.total ??
+        item.total_expenses ??
+        item.value ??
+        0
+      ),
+    }))
+    .filter((item) =>
+      Number.isFinite(item.amount)
+    );
+
+  const total = normalized.reduce(
+    (sum, item) => sum + item.amount,
+    0
+  );
+
+  return normalized.map((item) => ({
+    ...item,
+
+    percentage:
+      total > 0
+        ? (item.amount / total) * 100
+        : 0,
+  }));
+};
+
+
+const normalizeMonthlyTrend = (data) => {
+  const source = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.trend)
+      ? data.trend
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+  return source.map((item) => {
+    const income = Number(
+      item.income ??
+      item.total_income ??
+      item.totalIncome ??
+      0
+    );
+
+    const expenses = Number(
+      item.expenses ??
+      item.total_expenses ??
+      item.totalExpenses ??
+      0
+    );
+
+    const net = Number(
+      item.net ??
+      item.net_savings ??
+      income - expenses
+    );
+
+    return {
+      month:
+        item.month_label ??
+        item.month ??
+        item.month_key ??
+        'Unknown',
+
+      month_key:
+        item.month_key ??
+        item.month ??
+        'unknown',
+
+      income:
+        Number.isFinite(income)
+          ? income
+          : 0,
+
+      expenses:
+        Number.isFinite(expenses)
+          ? expenses
+          : 0,
+
+      net:
+        Number.isFinite(net)
+          ? net
+          : income - expenses,
+    };
+  });
+};
+
+
+const normalizeSavingsGoals = (data) => {
+  const source = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.goals)
+      ? data.goals
+      : Array.isArray(data?.savings_goals)
+        ? data.savings_goals
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+  return source.map((goal) => {
+    const target = Number(
+      goal.target ??
+      goal.target_amount ??
+      goal.targetAmount ??
+      0
+    );
+
+    const current = Number(
+      goal.current ??
+      goal.current_amount ??
+      goal.currentAmount ??
+      0
+    );
+
+    const calculatedPercentage =
+      target > 0
+        ? (current / target) * 100
+        : 0;
+
+    const remaining = Number(
+      goal.remaining ??
+      Math.max(target - current, 0)
+    );
+
+    const percentage = Number(
+      goal.percentage ??
+      goal.progress_percentage ??
+      calculatedPercentage
+    );
+
+    return {
+      ...goal,
+
+      id: goal.id,
+
+      title:
+        goal.title ??
+        goal.name ??
+        'Savings Goal',
+
+      goal_type:
+        goal.goal_type ??
+        goal.goalType ??
+        '',
+
+      target:
+        Number.isFinite(target)
+          ? target
+          : 0,
+
+      current:
+        Number.isFinite(current)
+          ? current
+          : 0,
+
+      remaining:
+        Number.isFinite(remaining)
+          ? remaining
+          : Math.max(target - current, 0),
+
+      percentage:
+        Number.isFinite(percentage)
+          ? percentage
+          : calculatedPercentage,
+
+      status:
+        goal.status ??
+        'in_progress',
+    };
+  });
+};
+
+
+const normalizeSavingsTrend = (data) => {
+  const source = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.trend)
+      ? data.trend
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+  return source.map((item) => {
+    const contribution = Number(
+      item.contribution ??
+      item.amount ??
+      item.total_contribution ??
+      0
+    );
+
+    const cumulative = Number(
+      item.cumulative_contribution ??
+      item.cumulative ??
+      0
+    );
+
+    return {
+      month:
+        item.month_label ??
+        item.month ??
+        item.month_key ??
+        'Unknown',
+
+      month_key:
+        item.month_key ??
+        item.month ??
+        'unknown',
+
+      contribution:
+        Number.isFinite(contribution)
+          ? contribution
+          : 0,
+
+      cumulative_contribution:
+        Number.isFinite(cumulative)
+          ? cumulative
+          : 0,
+    };
+  });
+};
+
+
+const normalizeCategoryTrend = (data) => {
+  if (!data || typeof data !== 'object') {
+    return [];
+  }
+
+  const trend = safeArray(data.trend);
+
+  return trend
+    .map((item) => {
+      const amount = Number(
+        item.amount ??
+        item.total_expenses ??
+        0
+      );
+
+      return {
+        month:
+          item.month ??
+          item.month_key ??
+          'Unknown',
+
+        category:
+          item.category ??
+          'Other',
+
+        amount:
+          Number.isFinite(amount)
+            ? amount
+            : 0,
+      };
+    })
+    .filter((item) => item.amount >= 0);
+};
+
+
+/* ============================================================
+   COMPONENT
+============================================================ */
+
 export default function AnalyticsDashboard() {
-  const [months, setMonths] = useState(12); // 1, 2, 3, 6, 12
+  const { user } = useAuth();
+
+
+  const [startDate, setStartDate] = useState(
+    formatDateInput(
+      subtractMonths(
+        getStartOfMonth(today),
+        11
+      )
+    )
+  );
+
+  const [endDate, setEndDate] = useState(
+    formatDateInput(today)
+  );
+
+  const [months, setMonths] = useState(12);
+
   const [summary, setSummary] = useState(null);
-  const [spendingCat, setSpendingCat] = useState([]);
+
+  const [categoryData, setCategoryData] = useState([]);
+
   const [monthlyTrend, setMonthlyTrend] = useState([]);
+
+  const [categoryTrend, setCategoryTrend] = useState([]);
+
+  const [comparison, setComparison] = useState(null);
+
+  const [savingsTrend, setSavingsTrend] = useState([]);
+
+  const [budgetStatus, setBudgetStatus] = useState([]);
+
   const [savingsGoals, setSavingsGoals] = useState([]);
-  const [expenseDist, setExpenseDist] = useState([]);
+
   const [loading, setLoading] = useState(true);
 
-  const fetchAnalytics = async () => {
-    setLoading(true);
-    try {
-      const [sumRes, catRes, trendRes, savRes, distRes] = await Promise.all([
-        api.get('/analytics/summary'),
-        api.get(`/analytics/spending-by-category?months=${months}`),
-        api.get(`/analytics/monthly-trend?months=${months}`),
-        api.get('/analytics/savings-progress'),
-        api.get('/analytics/expense-distribution'),
-      ]);
+  const [error, setError] = useState('');
 
-      setSummary(sumRes.data);
-      setSpendingCat(catRes.data);
-      setMonthlyTrend(trendRes.data);
-      setSavingsGoals(savRes.data);
-      setExpenseDist(distRes.data);
-    } catch (err) {
-      console.error('Failed to fetch analytics data:', err);
-    } finally {
-      setLoading(false);
+  const [exporting, setExporting] = useState('');
+
+
+  /* ==========================================================
+     DATE PRESETS
+  ========================================================== */
+
+  const applyPreset = async (preset) => {
+    const now = new Date();
+
+    let start;
+    let end;
+    let selectedMonths;
+
+    if (preset === 'month') {
+      start = getStartOfMonth(now);
+      end = getEndOfMonth(now);
+      selectedMonths = 1;
     }
+
+    else if (preset === '3months') {
+      start = subtractMonths(
+        getStartOfMonth(now),
+        2
+      );
+
+      end = getEndOfMonth(now);
+      selectedMonths = 3;
+    }
+
+    else if (preset === '6months') {
+      start = subtractMonths(
+        getStartOfMonth(now),
+        5
+      );
+
+      end = getEndOfMonth(now);
+      selectedMonths = 6;
+    }
+
+    else if (preset === '12months') {
+      start = subtractMonths(
+        getStartOfMonth(now),
+        11
+      );
+
+      end = getEndOfMonth(now);
+      selectedMonths = 12;
+    }
+
+    else {
+      return;
+    }
+
+    const newStartDate =
+      formatDateInput(start);
+
+    const newEndDate =
+      formatDateInput(end);
+
+    setStartDate(newStartDate);
+
+    setEndDate(newEndDate);
+
+    setMonths(selectedMonths);
+
+    await fetchAnalytics(
+      selectedMonths,
+      newStartDate,
+      newEndDate
+    );
   };
+
+
+  /* ==========================================================
+     FETCH ANALYTICS
+  ========================================================== */
+
+  const fetchAnalytics = async (
+    monthsToFetch = months,
+    startDateToFetch = startDate,
+    endDateToFetch = endDate
+  ) => {
+
+    setLoading(true);
+    setError('');
+
+    const results = {
+      summary: null,
+      categoryData: [],
+      monthlyTrend: [],
+      categoryTrend: [],
+      comparison: null,
+      savingsTrend: [],
+      savingsGoals: [],
+      budgetStatus: [],
+    };
+
+
+    /* --------------------------------------------------------
+       SUMMARY
+    -------------------------------------------------------- */
+
+    try {
+      const response = await api.get(
+        '/analytics/summary'
+      );
+
+      results.summary =
+        normalizeSummary(
+          response.data
+        );
+
+    } catch (err) {
+      console.error(
+        'Analytics summary error:',
+        err
+      );
+    }
+
+
+    /* --------------------------------------------------------
+       CUSTOM RANGE / CATEGORY
+    -------------------------------------------------------- */
+
+    try {
+      const response = await api.get(
+        '/analytics/custom-range',
+        {
+          params: {
+            start_date: startDateToFetch,
+            end_date: endDateToFetch,
+          },
+        }
+      );
+
+      const data = response.data;
+
+      results.categoryData =
+        normalizeCategoryData(
+          data?.category_breakdown ??
+          data?.categories ??
+          []
+        );
+
+    } catch (err) {
+
+      console.error(
+        'Custom range/category analytics error:',
+        err
+      );
+
+
+      /* ------------------------------------------------------
+         FALLBACK
+      ------------------------------------------------------ */
+
+      try {
+        const fallback =
+          await api.get(
+            '/analytics/spending-by-category',
+            {
+              params: {
+                months: monthsToFetch,
+              },
+            }
+          );
+
+        results.categoryData =
+          normalizeCategoryData(
+            fallback.data
+          );
+
+      } catch (fallbackError) {
+
+        console.error(
+          'Category fallback error:',
+          fallbackError
+        );
+      }
+    }
+
+
+    /* --------------------------------------------------------
+       MONTHLY TREND
+    -------------------------------------------------------- */
+
+    try {
+      const response =
+        await api.get(
+          '/analytics/monthly-trend',
+          {
+            params: {
+              months: monthsToFetch,
+            },
+          }
+        );
+
+      results.monthlyTrend =
+        normalizeMonthlyTrend(
+          response.data
+        );
+
+    } catch (err) {
+
+      console.error(
+        'Monthly trend error:',
+        err
+      );
+    }
+
+
+    /* --------------------------------------------------------
+       SAVINGS GOALS
+    -------------------------------------------------------- */
+
+    try {
+      const response =
+        await api.get(
+          '/analytics/savings-progress'
+        );
+
+      results.savingsGoals =
+        normalizeSavingsGoals(
+          response.data
+        );
+
+    } catch (err) {
+
+      console.error(
+        'Savings goals error:',
+        err
+      );
+
+
+      /* ------------------------------------------------------
+         FALLBACK
+      ------------------------------------------------------ */
+
+      try {
+        const fallback =
+          await api.get(
+            '/savings-goals'
+          );
+
+        results.savingsGoals =
+          normalizeSavingsGoals(
+            fallback.data
+          );
+
+      } catch (fallbackError) {
+
+        console.error(
+          'Savings goals fallback error:',
+          fallbackError
+        );
+      }
+    }
+
+
+    /* --------------------------------------------------------
+       CATEGORY TREND
+    -------------------------------------------------------- */
+
+    try {
+      const response =
+        await api.get(
+          '/analytics/category-trend',
+          {
+            params: {
+              months: monthsToFetch,
+            },
+          }
+        );
+
+      results.categoryTrend =
+        normalizeCategoryTrend(
+          response.data
+        );
+
+    } catch (err) {
+
+      console.error(
+        'Category trend error:',
+        err
+      );
+    }
+
+
+    /* --------------------------------------------------------
+       MONTH COMPARISON
+    -------------------------------------------------------- */
+
+    try {
+      const response =
+        await api.get(
+          '/analytics/month-comparison'
+        );
+
+      results.comparison =
+        response.data ?? null;
+
+    } catch (err) {
+
+      console.error(
+        'Month comparison error:',
+        err
+      );
+    }
+
+
+    /* --------------------------------------------------------
+       SAVINGS TREND
+    -------------------------------------------------------- */
+
+    try {
+      const response =
+        await api.get(
+          '/analytics/savings-trend',
+          {
+            params: {
+              months: monthsToFetch,
+            },
+          }
+        );
+
+      results.savingsTrend =
+        normalizeSavingsTrend(
+          response.data
+        );
+
+    } catch (err) {
+
+      console.error(
+        'Savings trend error:',
+        err
+      );
+    }
+
+
+    /* --------------------------------------------------------
+       BUDGET STATUS
+    -------------------------------------------------------- */
+
+    try {
+      const selectedEnd =
+        new Date(endDateToFetch);
+
+      const year =
+        selectedEnd.getFullYear();
+
+      const month =
+        selectedEnd.getMonth() + 1;
+
+      const response =
+        await api.get(
+          '/reports/monthly',
+          {
+            params: {
+              year,
+              month,
+            },
+          }
+        );
+
+      results.budgetStatus =
+        safeArray(
+          response.data?.budget_status
+        );
+
+    } catch (err) {
+
+      console.error(
+        'Budget status error:',
+        err
+      );
+    }
+
+
+    /* --------------------------------------------------------
+       SAVE RESULTS
+    -------------------------------------------------------- */
+
+    setSummary(
+      results.summary
+    );
+
+    setCategoryData(
+      results.categoryData
+    );
+
+    setMonthlyTrend(
+      results.monthlyTrend
+    );
+
+    setCategoryTrend(
+      results.categoryTrend
+    );
+
+    setComparison(
+      results.comparison
+    );
+
+    setSavingsTrend(
+      results.savingsTrend
+    );
+
+    setSavingsGoals(
+      results.savingsGoals
+    );
+
+    setBudgetStatus(
+      results.budgetStatus
+    );
+
+    setLoading(false);
+  };
+
+
+  /* ==========================================================
+     INITIAL LOAD
+  ========================================================== */
 
   useEffect(() => {
     fetchAnalytics();
-  }, [months]);
+  }, []);
+
+
+  /* ==========================================================
+     APPLY DATE RANGE
+  ========================================================== */
+
+  const handleApplyDateRange = async () => {
+
+    if (!startDate || !endDate) {
+      setError(
+        'Please select both start and end dates.'
+      );
+
+      return;
+    }
+
+    if (startDate > endDate) {
+      setError(
+        'Start date cannot be after end date.'
+      );
+
+      return;
+    }
+
+    const start =
+      new Date(startDate);
+
+    const end =
+      new Date(endDate);
+
+    const monthDifference =
+      (
+        end.getFullYear() -
+        start.getFullYear()
+      ) *
+        12 +
+      (
+        end.getMonth() -
+        start.getMonth()
+      ) +
+      1;
+
+    const newMonths =
+      Math.min(
+        Math.max(
+          monthDifference,
+          1
+        ),
+        12
+      );
+
+    setMonths(
+      newMonths
+    );
+
+    await fetchAnalytics(
+      newMonths,
+      startDate,
+      endDate
+    );
+  };
+
+
+  /* ==========================================================
+     REFRESH
+  ========================================================== */
+
+  const handleRefresh = async () => {
+    await fetchAnalytics(
+      months,
+      startDate,
+      endDate
+    );
+  };
+
+
+  /* ==========================================================
+     EXPORT
+  ========================================================== */
+
+  
+
+
+  /* ==========================================================
+     COMPARISON VALUES
+  ========================================================== */
+
+  const currentMonthExpenses =
+    Number(
+      comparison?.current_month?.expenses ??
+      comparison?.current_month?.total_expenses ??
+      0
+    );
+
+  const previousMonthExpenses =
+    Number(
+      comparison?.previous_month?.expenses ??
+      comparison?.previous_month?.total_expenses ??
+      0
+    );
+
+  const percentageChange =
+    Number(
+      comparison?.percentage_change?.expenses ??
+      comparison?.percentage_change ??
+      0
+    );
+
+
+  /* ==========================================================
+     SAVINGS TOTAL
+  ========================================================== */
+
+  const totalContributions =
+    savingsTrend.length > 0
+      ? Number(
+          savingsTrend[
+            savingsTrend.length - 1
+          ]?.cumulative_contribution ?? 0
+        )
+      : 0;
+
+
+  /* ==========================================================
+     TOTAL GOAL TARGET / CURRENT
+  ========================================================== */
+
+  const totalGoalTarget =
+    savingsGoals.reduce(
+      (total, goal) =>
+        total +
+        Number(
+          goal.target ?? 0
+        ),
+      0
+    );
+
+  const totalGoalCurrent =
+    savingsGoals.reduce(
+      (total, goal) =>
+        total +
+        Number(
+          goal.current ?? 0
+        ),
+      0
+    );
+
+  const overallGoalProgress =
+    totalGoalTarget > 0
+      ? (
+          totalGoalCurrent /
+          totalGoalTarget
+        ) *
+        100
+      : 0;
+
+
+  /* ==========================================================
+     BUDGET DATA FOR CHART
+  ========================================================== */
+
+  const budgetChartData =
+    budgetStatus
+      .map((budget) => {
+
+        const spent =
+          Number(
+            budget.spent_amount ??
+            budget.spent ??
+            budget.amount_spent ??
+            0
+          );
+
+        const remaining =
+          Math.max(
+            Number(
+              budget.remaining_amount ??
+              budget.remaining ??
+              0
+            ),
+            0
+          );
+
+        return {
+          category:
+            budget.category ??
+            'Other',
+
+          spent:
+            Number.isFinite(spent)
+              ? spent
+              : 0,
+
+          remaining:
+            Number.isFinite(remaining)
+              ? remaining
+              : 0,
+        };
+      })
+      .filter(
+        (item) =>
+          item.spent > 0 ||
+          item.remaining > 0
+      );
+
+
+  /* ==========================================================
+     DISPLAY DATES
+  ========================================================== */
+
+  const selectedPeriodLabel =
+    `${startDate} to ${endDate}`;
+
+
+  /* ==========================================================
+     LOADING
+  ========================================================== */
 
   if (loading && !summary) {
+
     return (
-      <div className="p-12 flex flex-col items-center justify-center space-y-4">
-        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-        <p className="text-slate-400 text-sm font-semibold">Generating your financial analytics...</p>
+      <div className="min-h-screen bg-slate-50 p-6">
+
+        <div className="flex min-h-[60vh] items-center justify-center">
+
+          <div className="flex flex-col items-center gap-4">
+
+            <RefreshCw
+              className="h-8 w-8 animate-spin text-emerald-600"
+            />
+
+            <p className="text-sm text-slate-500">
+              Loading premium analytics...
+            </p>
+
+          </div>
+
+        </div>
+
       </div>
     );
   }
 
+
+  /* ==========================================================
+     UI
+  ========================================================== */
+
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Header & Period Filter */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/60 p-6 rounded-3xl border border-slate-800 backdrop-blur-md">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-            <BarChart3 className="w-6 h-6" />
+    <div className="min-h-screen bg-slate-50 p-4 md:p-6 lg:p-8">
+
+      {/* ======================================================
+          HEADER
+      ====================================================== */}
+
+      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
+        <div>
+
+          <div className="mb-2 flex items-center gap-2">
+
+            <BarChart3 className="h-7 w-7 text-emerald-600" />
+
+            <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
+              Premium Analytics
+            </h1>
+
           </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white">Analytics & Visualizations</h1>
-            <p className="text-slate-400 text-xs sm:text-sm">Deep-dive financial breakdown, spending patterns, and progress charts</p>
-          </div>
+
+          <p className="text-sm text-slate-500 md:text-base">
+            Deep-dive financial insights, trends, comparisons and savings progress
+          </p>
+
         </div>
 
-        {/* Period Selector Buttons */}
-        <div className="flex items-center space-x-1.5 bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800 self-stretch sm:self-auto justify-center">
-          {[
-            { id: 1, label: '1 Month' },
-            { id: 2, label: '2 Months' },
-            { id: 3, label: '3 Months' },
-            { id: 6, label: '6 Months' },
-            { id: 12, label: '12 Months' },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setMonths(item.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                months === item.id
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={loading}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+
+          <RefreshCw
+            className={`h-4 w-4 ${
+              loading
+                ? 'animate-spin'
+                : ''
+            }`}
+          />
+
+          Refresh Analytics
+
+        </button>
+
       </div>
 
-      {/* Summary KPI Cards Grid */}
-      {summary && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl space-y-2">
-            <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase">
-              <span>Total Income</span>
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div className="text-2xl font-black text-emerald-400">
-              ₹{summary.total_income.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-[11px] text-slate-400">Lifetime total income recorded</p>
-          </div>
 
-          <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl space-y-2">
-            <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase">
-              <span>Total Expenses</span>
-              <TrendingDown className="w-4 h-4 text-red-400" />
-            </div>
-            <div className="text-2xl font-black text-red-400">
-              ₹{summary.total_expenses.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-[11px] text-slate-400">Lifetime total expenses recorded</p>
-          </div>
+      {/* ======================================================
+          ERROR
+      ====================================================== */}
 
-          <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl space-y-2">
-            <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase">
-              <span>Remaining Cash</span>
-              <Wallet className="w-4 h-4 text-blue-400" />
-            </div>
-            <div className="text-2xl font-black text-white">
-              ₹{summary.remaining_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-[11px] text-slate-400">Net available balance (Income - Expense)</p>
-          </div>
-
-          <div className="glass-card p-5 rounded-2xl border border-slate-800 shadow-xl space-y-2">
-            <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase">
-              <span>Savings Rate</span>
-              <PiggyBank className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div className="text-2xl font-black text-indigo-400">
-              {summary.savings_rate}%
-            </div>
-            <p className="text-[11px] text-slate-400">₹{summary.total_savings.toLocaleString('en-IN')} allocated in goals</p>
-          </div>
+      {error && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
       )}
 
-      {/* 4 Core Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Chart 1: Spending by Category (Pie Chart) */}
-        <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <PieChart className="w-5 h-5 text-blue-400" />
-              <h3 className="font-bold text-white text-lg">Spending by Category</h3>
+
+      {/* ======================================================
+          DATE RANGE
+      ====================================================== */}
+
+      
+
+
+      {/* ======================================================
+          SUMMARY CARDS
+      ====================================================== */}
+
+      <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+
+        {/* Income */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-4 flex items-center justify-between">
+
+            <div className="rounded-xl bg-emerald-50 p-2.5">
+
+              <Wallet className="h-5 w-5 text-emerald-600" />
+
             </div>
-            <span className="text-xs text-slate-400">Category Share %</span>
+
           </div>
-          <SpendingPieChart data={spendingCat} />
+
+          <p className="text-sm text-slate-500">
+            Total Income
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900">
+            {money(
+              summary?.total_income
+            )}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            Lifetime total income
+          </p>
+
         </div>
 
-        {/* Chart 2: Monthly Trend (Line Chart) */}
-        <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <TrendingUp className="w-5 h-5 text-emerald-400" />
-              <h3 className="font-bold text-white text-lg">Monthly Cash Flow Trend</h3>
+
+        {/* Expenses */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-4 flex items-center justify-between">
+
+            <div className="rounded-xl bg-red-50 p-2.5">
+
+              <TrendingDown className="h-5 w-5 text-red-600" />
+
             </div>
-            <span className="text-xs text-slate-400">Last {months} Month(s)</span>
+
           </div>
-          <MonthlyTrendLineChart data={monthlyTrend} />
+
+          <p className="text-sm text-slate-500">
+            Total Expenses
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900">
+            {money(
+              summary?.total_expenses
+            )}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            Lifetime total expenses
+          </p>
+
         </div>
 
-        {/* Chart 3: Expense Amount Distribution (Histogram) */}
-        <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <BarChart3 className="w-5 h-5 text-purple-400" />
-              <h3 className="font-bold text-white text-lg">Expense Amount Distribution</h3>
+
+        {/* Net Savings */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-4 flex items-center justify-between">
+
+            <div className="rounded-xl bg-blue-50 p-2.5">
+
+              <TrendingUp className="h-5 w-5 text-blue-600" />
+
             </div>
-            <span className="text-xs text-slate-400">Histogram Bins</span>
+
           </div>
-          <ExpenseHistogram data={expenseDist} />
+
+          <p className="text-sm text-slate-500">
+            Net Savings
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900">
+            {money(
+              summary?.net_savings
+            )}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            Lifetime net savings
+          </p>
+
         </div>
 
-        {/* Chart 4: Savings Goal Progress (Donut Chart) */}
-        <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <Target className="w-5 h-5 text-teal-400" />
-              <h3 className="font-bold text-white text-lg">Savings Goal Progress</h3>
+
+        {/* Savings Rate */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-4 flex items-center justify-between">
+
+            <div className="rounded-xl bg-purple-50 p-2.5">
+
+              <PiggyBank className="h-5 w-5 text-purple-600" />
+
             </div>
-            <span className="text-xs text-slate-400">Saved vs Target Remaining</span>
+
           </div>
-          <SavingsDonutChart goals={savingsGoals} />
+
+          <p className="text-sm text-slate-500">
+            Savings Rate
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900">
+            {percent(
+              summary?.savings_rate
+            )}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            Lifetime savings rate
+          </p>
+
         </div>
 
       </div>
+
+
+      {/* ======================================================
+          COMPARISON
+      ====================================================== */}
+
+      <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+        <div className="mb-6">
+
+          <h2 className="text-lg font-bold text-slate-900">
+            This Month vs Last Month
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Compare your recent spending performance
+          </p>
+
+        </div>
+
+
+        <div className="grid gap-4 md:grid-cols-3">
+
+          <div className="rounded-xl bg-slate-50 p-5">
+
+            <p className="text-sm text-slate-500">
+              This Month
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-slate-900">
+              {money(
+                currentMonthExpenses
+              )}
+            </p>
+
+          </div>
+
+
+          <div className="rounded-xl bg-slate-50 p-5">
+
+            <p className="text-sm text-slate-500">
+              Last Month
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-slate-900">
+              {money(
+                previousMonthExpenses
+              )}
+            </p>
+
+          </div>
+
+
+          <div className="rounded-xl bg-slate-50 p-5">
+
+            <p className="text-sm text-slate-500">
+              Change
+            </p>
+
+            <div className="mt-2 flex items-center gap-2">
+
+              {percentageChange < 0 ? (
+                <TrendingDown className="h-5 w-5 text-emerald-600" />
+              ) : (
+                <TrendingUp className="h-5 w-5 text-red-600" />
+              )}
+
+              <p
+                className={`text-2xl font-bold ${
+                  percentageChange < 0
+                    ? 'text-emerald-600'
+                    : 'text-red-600'
+                }`}
+              >
+                {percent(
+                  Math.abs(
+                    percentageChange
+                  )
+                )}
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      {/* ======================================================
+          MONTHLY CHARTS
+      ====================================================== */}
+
+      <div className="mb-8 grid gap-6 xl:grid-cols-2">
+
+        {/* Income */}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-5">
+
+            <h2 className="text-lg font-bold text-slate-900">{user?.role === "user" ? "Income" : "Monthly Income"}</h2>
+
+            <p className="text-sm text-slate-500">
+              Historical income trend
+            </p>
+
+          </div>
+
+          {monthlyTrend.length > 0 ? (
+            <IncomeBarChart
+              data={monthlyTrend}
+            />
+          ) : (
+            <EmptyState
+              text="No income trend data available."
+            />
+          )}
+
+        </section>
+
+
+        {/* Expenses */}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-5">
+
+            <h2 className="text-lg font-bold text-slate-900">{user?.role === "user" ? "Expenses" : "Monthly Expenses"}</h2>
+
+            <p className="text-sm text-slate-500">
+              Historical expense trend
+            </p>
+
+          </div>
+
+          {monthlyTrend.length > 0 ? (
+            <ExpenseLineChart
+              data={monthlyTrend}
+            />
+          ) : (
+            <EmptyState
+              text="No expense trend data available."
+            />
+          )}
+
+        </section>
+
+      </div>
+
+
+      {/* ======================================================
+          CATEGORY + BUDGET
+      ====================================================== */}
+
+      <div className="mb-8 grid gap-6 xl:grid-cols-2">
+
+        {/* Category */}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-5">
+
+            <h2 className="text-lg font-bold text-slate-900">
+              Spending by Category
+            </h2>
+
+            <p className="text-sm text-slate-500">
+              Selected date range
+            </p>
+
+          </div>
+
+          {categoryData.length > 0 ? (
+            <CategoryPieChart
+              data={categoryData}
+            />
+          ) : (
+            <EmptyState
+              text="No spending data available for this period."
+            />
+          )}
+
+        </section>
+
+
+        {/* Budget */}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="mb-5">
+
+            <h2 className="text-lg font-bold text-slate-900">
+              Budget Usage
+            </h2>
+
+            <p className="text-sm text-slate-500">
+              Current budget utilization
+            </p>
+
+          </div>
+
+          {budgetChartData.length > 0 ? (
+            <BudgetUsagePieChart
+              data={budgetChartData}
+            />
+          ) : (
+            <EmptyState
+              text="Not enough budget data available to display this chart."
+            />
+          )}
+
+        </section>
+
+      </div>
+
+
+      {/* ======================================================
+          CATEGORY TREND
+      ====================================================== */}
+
+      <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+        <div className="mb-5">
+
+          <h2 className="text-lg font-bold text-slate-900">
+            Category Spending Over Time
+          </h2>
+
+          <p className="text-sm text-slate-500">{user?.role === "user" ? "Category breakdown" : "Monthly category breakdown"}</p>
+
+        </div>
+
+        {categoryTrend.length > 0 ? (
+          <CategoryTrendChart
+            data={categoryTrend}
+          />
+        ) : (
+          <EmptyState
+            text="No category trend data available."
+          />
+        )}
+
+      </section>
+
+
+      {/* ======================================================
+          SAVINGS TREND
+      ====================================================== */}
+
+      <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+        <div className="mb-6">
+
+          <h2 className="text-lg font-bold text-slate-900">
+            Savings Contribution Trend
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Track contributions and cumulative savings
+          </p>
+
+        </div>
+
+
+        {/* Total Contributions */}
+
+        <div className="mb-6 rounded-xl bg-slate-50 p-5">
+
+          <p className="text-sm text-slate-500">
+            Total Contributions
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900">
+            {money(
+              totalContributions
+            )}
+          </p>
+
+        </div>
+
+
+        {/* Savings Chart */}
+
+        {savingsTrend.length > 0 ? (
+          <SavingsTrendChart
+            data={savingsTrend}
+          />
+        ) : (
+          <EmptyState
+            text="No savings contribution data available."
+          />
+        )}
+
+      </section>
+
+
+      {/* ======================================================
+          SAVINGS GOALS
+      ====================================================== */}
+
+      <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+        <div className="mb-6 flex items-center gap-2">
+
+          <Target className="h-5 w-5 text-emerald-600" />
+
+          <div>
+
+            <h2 className="text-lg font-bold text-slate-900">
+              Savings Goals Progress
+            </h2>
+
+            <p className="text-sm text-slate-500">
+              Current progress toward your financial goals
+            </p>
+
+          </div>
+
+        </div>
+
+
+        {savingsGoals.length > 0 ? (
+
+          <div className="space-y-5">
+
+            {savingsGoals.map(
+              (goal, index) => {
+
+                const progress =
+                  Math.min(
+                    Math.max(
+                      Number(
+                        goal.percentage ?? 0
+                      ),
+                      0
+                    ),
+                    100
+                  );
+
+                return (
+
+                  <div
+                    key={
+                      goal.id ??
+                      `${goal.title}-${index}`
+                    }
+                    className="rounded-xl border border-slate-100 bg-slate-50 p-5"
+                  >
+
+                    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+
+                      <div>
+
+                        <h3 className="font-semibold text-slate-900">
+                          {goal.title}
+                        </h3>
+
+                        {goal.goal_type && (
+                          <p className="text-xs capitalize text-slate-500">
+
+                            {String(
+                              goal.goal_type
+                            ).replace(
+                              /_/g,
+                              ' '
+                            )}
+
+                          </p>
+                        )}
+
+                      </div>
+
+
+                      <div className="text-left sm:text-right">
+
+                        <p className="text-sm font-semibold text-slate-900">
+
+                          {money(
+                            goal.current
+                          )}
+
+                          {' / '}
+
+                          {money(
+                            goal.target
+                          )}
+
+                        </p>
+
+                        <p className="text-xs text-slate-500">
+
+                          {percent(
+                            progress
+                          )}
+
+                          {' ('}
+
+                          {goal.status ??
+                            'in_progress'}
+
+                          {')'}
+
+                        </p>
+
+                      </div>
+
+                    </div>
+
+
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+
+                      <div
+                        className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                        style={{
+                          width: `${progress}%`,
+                        }}
+                      />
+
+                    </div>
+
+                  </div>
+
+                );
+              }
+            )}
+
+
+            {/* Goal Summary */}
+
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+
+              <div className="rounded-xl border border-slate-100 bg-white p-4">
+
+                <p className="text-xs text-slate-500">
+                  Total Target
+                </p>
+
+                <p className="mt-1 text-lg font-bold text-slate-900">
+                  {money(
+                    totalGoalTarget
+                  )}
+                </p>
+
+              </div>
+
+
+              <div className="rounded-xl border border-slate-100 bg-white p-4">
+
+                <p className="text-xs text-slate-500">
+                  Current Saved
+                </p>
+
+                <p className="mt-1 text-lg font-bold text-emerald-600">
+                  {money(
+                    totalGoalCurrent
+                  )}
+                </p>
+
+              </div>
+
+
+              <div className="rounded-xl border border-slate-100 bg-white p-4">
+
+                <p className="text-xs text-slate-500">
+                  Overall Progress
+                </p>
+
+                <p className="mt-1 text-lg font-bold text-slate-900">
+                  {percent(
+                    overallGoalProgress
+                  )}
+                </p>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        ) : (
+
+          <EmptyState
+            text="No savings goals available."
+          />
+
+        )}
+
+      </section>
+
+
+      {/* ======================================================
+          FOOTER
+      ====================================================== */}
+
+      <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-center text-xs text-slate-500">
+
+        Summary cards show lifetime totals. Trends, category analysis and exports use the selected period.
+
+      </div>
+
     </div>
   );
 }
+
+
+/* ============================================================
+   EMPTY STATE
+============================================================ */
+
+function EmptyState({
+  text,
+}) {
+  return (
+    <div className="flex min-h-[180px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 text-center">
+
+      <p className="text-sm text-slate-500">
+        {text}
+      </p>
+
+    </div>
+  );
+}
+

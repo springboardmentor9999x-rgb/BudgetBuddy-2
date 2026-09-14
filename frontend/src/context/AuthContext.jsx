@@ -84,7 +84,7 @@ export function AuthProvider({ children }) {
         localStorage.setItem('budgetbuddy_user', JSON.stringify(userData));
       }
       showToast('success', 'Email verified successfully!');
-      return { success: true };
+      return { success: true, user: userData };
     } catch (err) {
       const msg = err.response?.data?.detail || 'Invalid or expired OTP.';
       showToast('error', msg);

@@ -15,6 +15,20 @@ class UserRegister(BaseModel):
             raise ValueError("Passwords do not match")
         return v
 
+class AdminRegister(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    confirm_password: str
+    admin_key: str = Field(..., description="Secret key required to register as admin")
+
+
+    @field_validator("confirm_password")
+    def passwords_match(cls, v, values):
+        if "password" in values.data and v != values.data["password"]:
+            raise ValueError("Passwords do not match")
+        return v
+
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -67,7 +81,8 @@ class ChangePasswordRequest(BaseModel):
 
 
 class AccountDeleteRequest(BaseModel):
-    password: str = Field(..., min_length=1)
+    password: Optional[str] = None
+    otp: Optional[str] = None
 
 
 class Token(BaseModel):
@@ -85,6 +100,9 @@ class UserOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserRoleUpdate(BaseModel):
+    role: str = Field(..., description="user, premium, admin")
 
 
 class ProfileOut(BaseModel):
@@ -317,10 +335,22 @@ class NotificationOut(BaseModel):
     type: str
     is_read: bool
     created_at: datetime.datetime
+    formatted_date: Optional[str] = None
 
     class Config:
         from_attributes = True
 
+    @field_validator('formatted_date', mode='before')
+    def default_formatted_date(cls, v, values):
+        if 'created_at' in values.data:
+            dt = values.data['created_at']
+            # created_at is naive UTC from DB usually.
+            import pytz
+            utc_dt = dt.replace(tzinfo=pytz.utc) if dt.tzinfo is None else dt
+            ist_tz = pytz.timezone('Asia/Kolkata')
+            ist_dt = utc_dt.astimezone(ist_tz)
+            return ist_dt.strftime("%d %B %Y, %I:%M %p IST")
+        return v
 class ContributionResponse(BaseModel):
     goal: SavingsGoalOut
     notification: Optional[NotificationOut] = None

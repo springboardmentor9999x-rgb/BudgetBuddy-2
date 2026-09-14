@@ -19,6 +19,10 @@ import Income from './pages/Income';
 import Expenses from './pages/Expenses';
 import Budgets from './pages/Budgets';
 import Profile from './pages/Profile';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminUserAccounts from './pages/AdminUserAccounts';
+import PremiumDashboard from './pages/PremiumDashboard';
+import Pricing from './pages/Pricing';
 
 function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -42,6 +46,8 @@ function Layout() {
   );
 }
 
+
+
 function AppContent() {
   const { toast, hideToast } = useAuth();
 
@@ -63,15 +69,61 @@ function AppContent() {
             </ProtectedRoute>
           }
         >
+          {/* Routes accessible to all authenticated users */}
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/goals" element={<Goals />} />
-          <Route path="/analytics" element={<AnalyticsDashboard />} />
-          <Route path="/reports" element={<Reports />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/income" element={<Income />} />
           <Route path="/expenses" element={<Expenses />} />
           <Route path="/budgets" element={<Budgets />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/pricing" element={<Pricing />} />
+
+          {/* Accessible to all authenticated users */}
+          <Route 
+            path="/analytics" 
+            element={
+              <ProtectedRoute>
+                <AnalyticsDashboard />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Premium & Admin Only Routes */}
+          <Route 
+            path="/reports" 
+            element={
+              <ProtectedRoute allowedRoles={['premium', 'admin']}>
+                <Reports />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/premium" 
+            element={
+              <ProtectedRoute allowedRoles={['premium', 'admin']}>
+                <PremiumDashboard />
+              </ProtectedRoute>
+            } 
+          />
+
+          {/* Admin Only Routes */}
+          <Route 
+            path="/admin" 
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminDashboard />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/admin/users/:userId/accounts" 
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminUserAccounts />
+              </ProtectedRoute>
+            } 
+          />
         </Route>
 
         {/* Catch-all Fallback */}

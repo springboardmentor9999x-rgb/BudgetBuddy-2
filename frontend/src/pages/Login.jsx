@@ -23,7 +23,12 @@ export default function Login() {
     setSubmitting(false);
 
     if (res.success) {
-      navigate(from, { replace: true });
+      let target = from;
+      if (from === '/dashboard') {
+        if (res.user.role === 'admin') target = '/admin';
+        else if (res.user.role === 'premium') target = '/premium';
+      }
+      navigate(target, { replace: true });
     } else if (res.isUnverified) {
       // Send a fresh OTP and redirect to verify email page
       await resendOTP(email);

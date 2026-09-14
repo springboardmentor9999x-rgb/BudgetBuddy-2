@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, accounts, incomes, expenses, budgets, dashboard, profile, reports, goals, notifications, analytics
+from app.routers import auth, accounts, incomes, expenses, budgets, dashboard, profile, reports, goals, notifications, analytics, admin
 
 # Create all database tables automatically
 Base.metadata.create_all(bind=engine)
@@ -12,12 +12,16 @@ app = FastAPI(
     version="1.0.0"
 )
 
+from app.config import settings
+
 # CORS Configuration
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "*"
+    "https://budgetbuddy-frontend.onrender.com",
+    "https://budgetbuddy-frontend-uxsq.onrender.com",
+    settings.FRONTEND_URL
 ]
 
 app.add_middleware(
@@ -40,6 +44,7 @@ app.include_router(reports.router)
 app.include_router(goals.router)
 app.include_router(notifications.router)
 app.include_router(analytics.router)
+app.include_router(admin.router)
 
 
 @app.get("/")

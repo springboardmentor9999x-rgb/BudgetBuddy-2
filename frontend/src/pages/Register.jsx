@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import PasswordStrength, { checkPasswordStrength } from '../components/PasswordStrength';
 import FinanceQuotes from '../components/FinanceQuotes';
 import walletImg from '../assets/budgetbuddy-wallet.png';
-import { Wallet, ArrowRight, User, Mail, Lock, CheckCircle2 } from 'lucide-react';
+import { Wallet, ArrowRight, User, Mail, Lock, CheckCircle2, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 export default function Register() {
+  const [registerType, setRegisterType] = useState('user'); // 'user' or 'admin'
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [adminKey, setAdminKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const { register } = useAuth();
   const navigate = useNavigate();
@@ -22,15 +26,36 @@ export default function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+
     if (!isPasswordValid) return;
     if (!passwordsMatch) return;
 
-    setSubmitting(true);
-    const res = await register(fullName, email, password, confirmPassword);
-    setSubmitting(false);
-
-    if (res.success) {
-      navigate('/verify-email', { state: { email } });
+    if (registerType === 'admin') {
+      setSubmitting(true);
+      try {
+        await api.post('/auth/admin/register', {
+          full_name: fullName,
+          email,
+          password,
+          confirm_password: confirmPassword,
+          admin_key: adminKey
+        });
+        navigate('/verify-email', { state: { email } });
+      } catch (err) {
+        const detail = err.response?.data?.detail;
+        setError(typeof detail === 'string' ? detail : (Array.isArray(detail) ? detail[0]?.msg : 'Admin registration failed'));
+      } finally {
+        setSubmitting(false);
+      }
+    } else {
+      setSubmitting(true);
+      const res = await register(fullName, email, password, confirmPassword);
+      setSubmitting(false);
+      
+      if (res.success) {
+        navigate('/verify-email', { state: { email } });
+      }
     }
   };
 
@@ -75,9 +100,42 @@ export default function Register() {
         {/* Right Side: Registration Form */}
         <div className="glass-card p-6 sm:p-8 rounded-3xl border border-slate-800 shadow-2xl">
           <div className="mb-6">
-            <h2 className="text-2xl font-bold text-white">Create your BudgetBuddy account</h2>
+            <h2 className="text-2xl font-bold text-white">Create your account</h2>
             <p className="text-slate-400 text-xs mt-1">Start tracking your finances in less than a minute</p>
           </div>
+
+          {/* Account Type Toggle */}
+          <div className="flex p-1 bg-slate-900/90 rounded-xl mb-6">
+            <button
+              type="button"
+              onClick={() => setRegisterType('user')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${
+                registerType === 'user'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Normal User
+            </button>
+            <button
+              type="button"
+              onClick={() => setRegisterType('admin')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${
+                registerType === 'admin'
+                  ? 'bg-rose-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Administrator
+            </button>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -161,21 +219,44 @@ export default function Register() {
               )}
             </div>
 
+            {registerType === 'admin' && (
+              <div>
+                <label className="block text-xs font-semibold text-rose-400 uppercase tracking-wider mb-1.5">
+                  Admin Registration Key
+                </label>
+                <div className="relative">
+                  <ShieldCheck className="w-5 h-5 text-rose-500 absolute left-3.5 top-3" />
+                  <input
+                    type="password"
+                    required
+                    value={adminKey}
+                    onChange={(e) => setAdminKey(e.target.value)}
+                    placeholder="Secret Key"
+                    className="w-full bg-slate-900/90 border border-rose-500/50 rounded-xl py-2.5 pl-11 pr-4 text-sm text-rose-300 font-mono focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={submitting || !isPasswordValid || !passwordsMatch}
-              className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center space-x-2 transition-all"
+              disabled={submitting || !isPasswordValid || !passwordsMatch || (registerType === 'admin' && !adminKey)}
+              className={`w-full mt-2 text-white font-bold py-3 rounded-xl shadow-lg flex items-center justify-center space-x-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                registerType === 'admin' 
+                  ? 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 shadow-rose-500/25' 
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-blue-500/25'
+              }`}
             >
-              <span>{submitting ? 'Creating Account...' : 'Create Account'}</span>
+              <span>{submitting ? 'Creating Account...' : registerType === 'admin' ? 'Register as Admin' : 'Create Account'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-slate-800 text-center">
+          <div className="mt-6 pt-4 border-t border-slate-800 text-center space-y-2">
             <p className="text-xs text-slate-400">
               Already have an account?{' '}
               <Link to="/login" className="text-blue-400 font-bold hover:underline">
-                Login here
+                Log in here
               </Link>
             </p>
           </div>

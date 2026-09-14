@@ -76,7 +76,14 @@ export default function VerifyEmail() {
     setSubmitting(false);
 
     if (res.success) {
-      navigate('/dashboard');
+      if (res.user?.email && res.user.email !== email) {
+        alert(`IMPORTANT: Your admin login email has been automatically generated as:\n\n${res.user.email}\n\nPlease use this new email to log in from now on.`);
+      }
+
+      let target = '/dashboard';
+      if (res.user?.role === 'admin') target = '/admin';
+      else if (res.user?.role === 'premium') target = '/premium';
+      navigate(target, { replace: true });
     }
   };
 
